@@ -1,0 +1,21 @@
+# Netlify: the public website.
+# Set BACKEND_URL (the Railway URL of the API) under Site configuration > Environment variables.
+# The build then writes dist/_redirects, which proxies /api/* to the backend.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "24"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "SAMEORIGIN"

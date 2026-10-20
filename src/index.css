@@ -1,0 +1,100 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Source Sans 3', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Source Serif 4', ui-serif, Georgia, serif;
+
+  --color-ink: #1b2130;
+  --color-muted: #4a5266;
+
+  --color-navy-50: #eef2f8;
+  --color-navy-100: #dbe3ef;
+  --color-navy-200: #b7c6de;
+  --color-navy-300: #8ea4c8;
+  --color-navy-600: #2c4a7c;
+  --color-navy-700: #1f3a66;
+  --color-navy-800: #172d52;
+  --color-navy-900: #10223f;
+  --color-navy-950: #0a1628;
+
+  --color-cream-50: #fdfbf6;
+  --color-cream-100: #f8f4ea;
+  --color-cream-200: #efe8d6;
+  --color-cream-300: #e2d8bf;
+
+  --color-sage-50: #eef6f4;
+  --color-sage-100: #d5ebe6;
+  --color-sage-200: #b0d8cf;
+  --color-sage-600: #2f7a6d;
+  --color-sage-700: #24635a;
+  --color-sage-800: #1d4f48;
+
+  --color-card-50: #fcf0ef;
+  --color-card-100: #f6d9d6;
+  --color-card-600: #b23a32;
+  --color-card-700: #962e27;
+
+  --shadow-soft: 0 1px 2px rgb(16 34 63 / 0.04), 0 4px 16px -4px rgb(16 34 63 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(16 34 63 / 0.05), 0 12px 32px -8px rgb(16 34 63 / 0.16);
+}
+
+@layer base {
+  html {
+    /* 18px base: comfortable for every age group */
+    font-size: 112.5%;
+    -webkit-text-size-adjust: 100%;
+    scroll-padding-top: 6rem;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  body {
+    @apply bg-cream-50 font-sans text-ink antialiased;
+    line-height: 1.65;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif text-navy-900;
+    line-height: 1.2;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-sage-600);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-navy-100);
+  }
+}
+
+@layer utilities {
+  .link {
+    @apply font-semibold text-navy-700 underline decoration-navy-200 decoration-2 underline-offset-4 transition-colors hover:text-navy-900 hover:decoration-navy-600;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
