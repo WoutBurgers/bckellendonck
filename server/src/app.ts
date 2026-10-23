@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
@@ -18,7 +20,14 @@ export function createApp(config: Config, storage: Storage) {
 
   app.disable('x-powered-by')
   app.set('trust proxy', config.trustProxy)
-  app.use(helmet({ crossOriginResourcePolicy: { policy: config.corsOrigins.length ? 'cross-origin' : 'same-origin' } }))
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: config.corsOrigins.length ? 'cross-origin' : 'same-origin' },
+      // The website loads its fonts from Google Fonts; allowed by Helmet's default style-src/font-src.
+      contentSecurityPolicy: { directives: { upgradeInsecureRequests: config.production ? [] : null } },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    }),
+  )
 
   if (config.corsOrigins.length) {
     app.use(
@@ -55,6 +64,24 @@ export function createApp(config: Config, storage: Storage) {
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Niet gevonden.' })
   })
+
+  // The built website (dist/), served by the same service so the site and API share one domain.
+  if (config.staticDir && existsSync(join(config.staticDir, 'index.html'))) {
+    const indexFile = join(config.staticDir, 'index.html')
+    app.use(
+      express.static(config.staticDir, {
+        index: false,
+        setHeaders(res, path) {
+          if (/[\\/]assets[\\/]/.test(path)) res.set('Cache-Control', 'public, max-age=604800')
+        },
+      }),
+    )
+    // Every other GET goes to index.html for client-side routing.
+    app.get('/{*splat}', (_req, res) => {
+      res.set('Cache-Control', 'no-cache')
+      res.sendFile(indexFile)
+    })
+  }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     const status = (err as { status?: number }).status

@@ -1,9 +1,13 @@
+import { fileURLToPath } from 'node:url'
+
 export type SameSite = 'strict' | 'lax' | 'none'
 
 export interface Config {
   production: boolean
   port: number
-  /** Number of proxies in front of the app (Railway = 1, Netlify proxy + Railway = 2). */
+  /** Folder with the built website (dist/); served next to the API when it exists. */
+  staticDir?: string
+  /** Number of proxies in front of the app (Railway = 1). */
   trustProxy: number
   adminPasswordHash: string
   /** Optional initial members PIN; a PIN set in the dashboard takes precedence. */
@@ -60,6 +64,7 @@ export function loadConfig(): Config {
   return {
     production,
     port: num('PORT', 3001),
+    staticDir: process.env.STATIC_DIR || fileURLToPath(new URL('../../dist/', import.meta.url)),
     trustProxy: Number(process.env.TRUST_PROXY ?? 1),
     adminPasswordHash,
     membersPinHash: process.env.MEMBERS_PIN_HASH?.trim() || '',

@@ -1,7 +1,7 @@
 /**
  * Small client for the BC Kellendonck API.
  * By default the API is served from the same domain under /api (Vite proxy in development,
- * a Netlify proxy in production). Set VITE_API_URL only when the API runs on another domain.
+ * the same Railway service in production). Set VITE_API_URL only when the API runs on another domain.
  */
 const base = (import.meta.env.VITE_API_URL?.trim() || '').replace(/\/$/, '')
 

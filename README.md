@@ -8,9 +8,11 @@ Voor de beheerder (zonder technische kennis): zie **[HANDLEIDING-BEHEER.md](HAND
 ## Opbouw
 
 ```
-/            React + TypeScript + Vite + Tailwind CSS 4 (de publieke website)   → Netlify
-/server      Node.js + Express + TypeScript (API, inloggen, opslag)              → Railway
+/            React + TypeScript + Vite + Tailwind CSS 4 (de publieke website)
+/server      Node.js + Express + TypeScript (API, inloggen, opslag)
 ```
+
+Beide draaien in productie als **één service op Railway**.
 
 | Onderdeel | Hoe het werkt |
 | --- | --- |
@@ -19,8 +21,9 @@ Voor de beheerder (zonder technische kennis): zie **[HANDLEIDING-BEHEER.md](HAND
 | Afmeldingen | Opgeslagen door de API en zichtbaar in `/beheer/afmeldingen` (optioneel ook per e-mail) |
 | Speelschema | Afbeelding in `public/assets/images/` (nog niet via het beheer aan te passen) |
 
-De website en de API draaien in productie onder **hetzelfde domein**: Netlify stuurt `/api/*` door naar
-Railway. Daardoor werken de inlogcookies in alle browsers (ook Safari) en is er geen CORS nodig.
+De website en de API draaien in productie onder **hetzelfde domein**: Railway bouwt de website
+(`npm run build` → `dist/`) en de API levert die bestanden zelf uit, naast `/api/*`. Daardoor werken de
+inlogcookies in alle browsers (ook Safari) en is er geen CORS of proxy nodig.
 
 ### Opslag
 
@@ -80,43 +83,40 @@ docker run -d -p 9010:9000 -e MINIO_ROOT_USER=bcktest -e MINIO_ROOT_PASSWORD=bck
 TEST_S3_ENDPOINT=http://localhost:9010 TEST_S3_ACCESS_KEY=bcktest TEST_S3_SECRET_KEY=bcktest-secret-123 npm run test:server
 ```
 
-## In productie zetten
+## In productie zetten (Railway)
 
-### 1. API op Railway
+`railway.json` in de hoofdmap regelt de build en de start:
+
+- **Build:** `npm run build:railway` — bouwt de website naar `dist/` en installeert de API-pakketten.
+- **Start:** `npm start` — start de API, die ook de website uit `dist/` serveert.
+- **Healthcheck:** `/api/health`.
+
+Er is geen aparte buildstap voor de API: Node voert de TypeScript-code direct uit.
 
 1. Maak een nieuw project in Railway en kies **Deploy from GitHub repo** met deze repository.
-2. Zet bij de service **Settings → Root Directory** op `server`. Railway gebruikt dan
-   `server/railway.json` (start met `npm start`, healthcheck op `/api/health`). Er is geen buildstap:
-   Node voert de TypeScript-code direct uit.
-3. Opslag, kies één van de twee:
+   Laat **Settings → Root Directory** leeg (de hoofdmap van de repository).
+2. Opslag, kies één van de twee:
    - **Bucket (aanbevolen):** maak in hetzelfde project een Bucket aan (of gebruik Cloudflare R2) en zet
      `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID` en
      `S3_SECRET_ACCESS_KEY` met de gegevens van die bucket.
    - **Volume:** koppel een Volume aan de service (bijv. op `/data`) en zet `STORAGE_DRIVER=local` en
      `DATA_DIR=/data`.
-4. Zet de overige variabelen (zie `server/.env.example`), minimaal:
+3. Zet de overige variabelen (zie `server/.env.example`), minimaal:
    - `NODE_ENV=production`
    - `ADMIN_PASSWORD_HASH=` de hash uit `npm --prefix server run hash-secret`
-   - `TRUST_PROXY=2` (Netlify-proxy + Railway)
-5. Maak onder **Networking** een publiek domein aan, bijv. `https://bckellendonck-api.up.railway.app`.
-   Controleer: `https://…/api/health` geeft `{"ok":true}`.
+   - `TRUST_PROXY=1` (de Railway-proxy; dit is ook de standaard)
+4. Maak onder **Networking** een publiek domein aan (of koppel een eigen domein).
+5. Controleer: `https://<domein>/api/health` geeft `{"ok":true}`, de homepage laadt en `/beheer` toont
+   het inlogscherm.
 
-### 2. Website op Netlify
+Elke push naar de gekoppelde branch bouwt en start de website en de API opnieuw. Na een nieuwe pdf of
+ledenlijst is **geen** nieuwe deploy nodig.
 
-1. **Add new site → Import an existing project** en kies deze repository. `netlify.toml` regelt de
-   build (`npm run build`, map `dist`).
-2. Zet onder **Site configuration → Environment variables**:
-   `BACKEND_URL=https://bckellendonck-api.up.railway.app` (het Railway-domein, zonder `/` op het eind).
-3. Deploy. De build schrijft `dist/_redirects` met de regel `/api/*  → BACKEND_URL/api/:splat`.
-4. Controleer: `https://<site>/api/health` geeft `{"ok":true}` en `/beheer` toont het inlogscherm.
+### Website apart hosten (optioneel)
 
-Na een nieuwe pdf of ledenlijst hoeft de website **niet** opnieuw gebouwd te worden.
-
-### Zonder Netlify-proxy (andere hosting)
-
-Als de website de API rechtstreeks op een ander domein aanroept: zet bij de website
-`VITE_API_URL=https://<api-domein>` en bij de API `CORS_ORIGINS=https://<website-domein>` en
-`COOKIE_SAMESITE=none`. Let op: sommige browsers blokkeren cookies van andere domeinen, dus de proxy is
+Als de website toch ergens anders staat en de API rechtstreeks op een ander domein aanroept: zet bij de
+website `VITE_API_URL=https://<api-domein>` en bij de API `CORS_ORIGINS=https://<website-domein>` en
+`COOKIE_SAMESITE=none`. Let op: sommige browsers blokkeren cookies van andere domeinen, dus één domein is
 sterk aan te raden.
 
 ## Wachtwoorden en toegangscode
