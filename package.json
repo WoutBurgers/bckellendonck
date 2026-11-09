@@ -11,7 +11,6 @@
     "dev:server": "npm --prefix server run dev",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "build:railway": "npm run build && npm ci --prefix server --omit=dev",
     "start": "npm --prefix server start",
     "typecheck": "tsc -b",
     "test:server": "npm --prefix server test",

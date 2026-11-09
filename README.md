@@ -85,10 +85,10 @@ TEST_S3_ENDPOINT=http://localhost:9010 TEST_S3_ACCESS_KEY=bcktest TEST_S3_SECRET
 
 ## In productie zetten (Railway)
 
-`railway.json` in de hoofdmap regelt de build en de start:
+Railway bouwt de `Dockerfile` in de hoofdmap (ingesteld in `railway.json`):
 
-- **Build:** `npm run build:railway` — bouwt de website naar `dist/` en installeert de API-pakketten.
-- **Start:** `npm start` — start de API, die ook de website uit `dist/` serveert.
+- **Build:** bouwt de website naar `dist/` en installeert de API-pakketten.
+- **Start:** start de API, die ook de website uit `dist/` serveert.
 - **Healthcheck:** `/api/health`.
 
 Er is geen aparte buildstap voor de API: Node voert de TypeScript-code direct uit.
