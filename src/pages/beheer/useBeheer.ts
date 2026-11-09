@@ -19,7 +19,7 @@ export interface Overview {
     pinSet: boolean
     pinUpdatedAt: string | null
   }
-  afmeldingen: { count: number; latest: string | null }
+  afmeldingen: { count: number; latest: string | null; emails: string[]; emailConfigured: boolean }
   limits: { maxUploadMb: number; maxMembersFileMb: number }
 }
 

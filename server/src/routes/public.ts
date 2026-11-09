@@ -3,6 +3,29 @@ import { DOCUMENTS, findDocument } from '../lib/documents.ts'
 import { cleanCell } from '../lib/memberFile.ts'
 import type { Context } from '../context.ts'
 
+/** Optional e-mail notification; the message is already saved, so a mail failure is only logged. */
+async function notifyAfmelding(ctx: Context, namen: string, bericht: string) {
+  const mail = ctx.config.resend
+  if (!mail) return
+  try {
+    const to = (await ctx.club.settings()).afmeldenEmails ?? mail.to
+    if (to.length === 0) return
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${mail.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: mail.from,
+        to,
+        subject: `Afmelding: ${namen}`,
+        text: `Afmelding via de website van BC Kellendonck\n\nNamen: ${namen}\n\nBericht:\n${bericht}`,
+      }),
+    })
+    if (!r.ok) console.error(`Afmelding-e-mail mislukt (status ${r.status})`)
+  } catch {
+    console.error('Afmelding-e-mail mislukt (netwerkfout)')
+  }
+}
+
 export function publicRoutes(ctx: Context) {
   const router = Router()
 
@@ -65,25 +88,7 @@ export function publicRoutes(ctx: Context) {
     }
 
     await ctx.club.addAfmelding(cleanNamen, cleanBericht)
-
-    // Optional e-mail notification; the message is already saved, so a mail failure is only logged.
-    const mail = ctx.config.resend
-    if (mail) {
-      fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${mail.apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: mail.from,
-          to: mail.to,
-          subject: `Afmelding: ${cleanNamen}`,
-          text: `Afmelding via de website van BC Kellendonck\n\nNamen: ${cleanNamen}\n\nBericht:\n${cleanBericht}`,
-        }),
-      })
-        .then((r) => {
-          if (!r.ok) console.error(`Afmelding-e-mail mislukt (status ${r.status})`)
-        })
-        .catch(() => console.error('Afmelding-e-mail mislukt (netwerkfout)'))
-    }
+    void notifyAfmelding(ctx, cleanNamen, cleanBericht)
     res.status(201).json({ ok: true })
   })
 

@@ -14,6 +14,8 @@ export interface MemberList {
 interface Settings {
   membersPinHash?: string
   membersPinUpdatedAt?: string
+  /** Recipients of absence notifications; an empty list turns them off. */
+  afmeldenEmails?: string[]
 }
 
 export interface Afmelding {
@@ -90,6 +92,13 @@ export class ClubData {
     await withLock(SETTINGS_KEY, async () => {
       const settings = await this.settings()
       await writeJson(this.storage, SETTINGS_KEY, { ...settings, membersPinHash: hash, membersPinUpdatedAt: new Date().toISOString() })
+    })
+  }
+
+  async setAfmeldenEmails(emails: string[]) {
+    await withLock(SETTINGS_KEY, async () => {
+      const settings = await this.settings()
+      await writeJson(this.storage, SETTINGS_KEY, { ...settings, afmeldenEmails: emails })
     })
   }
 

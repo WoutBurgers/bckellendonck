@@ -21,6 +21,8 @@ interface Draft {
 }
 
 const DRAFT_TTL = 30 * 60_000
+const EMAIL = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/
+const MAX_AFMELDEN_EMAILS = 20
 
 export function adminRoutes(ctx: Context) {
   const router = Router()
@@ -115,7 +117,12 @@ export function adminRoutes(ctx: Context) {
         pinSet: Boolean(settings.membersPinHash || ctx.config.membersPinHash),
         pinUpdatedAt: settings.membersPinUpdatedAt ?? null,
       },
-      afmeldingen: { count: afmeldingen.length, latest: afmeldingen[0]?.receivedAt ?? null },
+      afmeldingen: {
+        count: afmeldingen.length,
+        latest: afmeldingen[0]?.receivedAt ?? null,
+        emails: settings.afmeldenEmails ?? ctx.config.resend?.to ?? [],
+        emailConfigured: Boolean(ctx.config.resend),
+      },
       limits: { maxUploadMb: Math.round(ctx.config.maxUploadBytes / 1024 / 1024), maxMembersFileMb: Math.round(ctx.config.maxMembersFileBytes / 1024 / 1024) },
       expiresAt: res.locals.sessionExpiresAt,
     })
@@ -256,6 +263,17 @@ export function adminRoutes(ctx: Context) {
   router.get('/afmeldingen', async (_req, res) => {
     const items = await ctx.club.afmeldingen(100)
     res.json({ items: items.map(({ id, namen, bericht, receivedAt }) => ({ id, namen, bericht, receivedAt })) })
+  })
+
+  router.put('/afmelden-emails', async (req, res) => {
+    const raw: unknown = req.body?.emails
+    if (!Array.isArray(raw) || !raw.every((e) => typeof e === 'string')) return res.status(400).json({ error: 'Ongeldige aanvraag.' })
+    const emails = [...new Set((raw as string[]).map((e) => e.trim().toLowerCase()).filter(Boolean))]
+    const invalid = emails.find((e) => e.length > 254 || !EMAIL.test(e))
+    if (invalid !== undefined) return res.status(400).json({ error: `"${invalid.slice(0, 60)}" is geen geldig e-mailadres.` })
+    if (emails.length > MAX_AFMELDEN_EMAILS) return res.status(400).json({ error: `Vul maximaal ${MAX_AFMELDEN_EMAILS} e-mailadressen in.` })
+    await ctx.club.setAfmeldenEmails(emails)
+    res.json({ ok: true, emails })
   })
 
   router.delete('/afmeldingen/:id', async (req, res) => {

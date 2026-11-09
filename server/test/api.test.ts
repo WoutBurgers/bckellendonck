@@ -119,6 +119,7 @@ describe('BC Kellendonck API', () => {
       ['GET', '/api/admin/overview'],
       ['GET', '/api/admin/members'],
       ['PUT', '/api/admin/members-pin'],
+      ['PUT', '/api/admin/afmelden-emails'],
       ['POST', '/api/admin/documents/statuten'],
       ['GET', '/api/admin/afmeldingen'],
     ]) {
@@ -366,6 +367,52 @@ describe('BC Kellendonck API', () => {
       const { items } = (await (await admin.req('GET', '/api/admin/afmeldingen')).json()) as { items: { id: string; namen: string }[] }
       assert.ok(items.some((i) => i.namen === 'Jan en Truus'))
       assert.equal((await admin.req('DELETE', `/api/admin/afmeldingen/${items[0].id}`)).status, 200)
+    })
+
+    it('e-mails a new message to the addresses saved in the dashboard', async () => {
+      const realFetch = globalThis.fetch
+      const sent: { to: string[]; subject: string; text: string }[] = []
+      globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        if (String(input) !== 'https://api.resend.com/emails') return realFetch(input, init)
+        sent.push(JSON.parse(String(init?.body)))
+        return new Response('{}', { status: 200 })
+      }) as typeof fetch
+      config.resend = { apiKey: 'test', from: 'club@example.nl', to: ['start@example.nl'] }
+      try {
+        const admin = new Client(base, '10.0.4.1')
+        await admin.req('POST', '/api/admin/login', { json: { wachtwoord: ADMIN_PASSWORD } })
+        const overview = async () => ((await (await admin.req('GET', '/api/admin/overview')).json()) as { afmeldingen: { emails: string[]; emailConfigured: boolean } }).afmeldingen
+        const initial = await overview()
+        assert.deepEqual(initial.emails, ['start@example.nl'])
+        assert.equal(initial.emailConfigured, true)
+
+        const invalid = await admin.req('PUT', '/api/admin/afmelden-emails', { json: { emails: ['goed@example.nl', 'geen-adres'] } })
+        assert.equal(invalid.status, 400)
+        assert.match(((await invalid.json()) as { error: string }).error, /geen-adres/)
+        assert.equal((await admin.req('PUT', '/api/admin/afmelden-emails', { json: { emails: 'a@example.nl' } })).status, 400)
+
+        const saved = await admin.req('PUT', '/api/admin/afmelden-emails', { json: { emails: [' Secretaris@Example.nl ', 'tc@example.nl', 'secretaris@example.nl', ''] } })
+        assert.deepEqual(((await saved.json()) as { emails: string[] }).emails, ['secretaris@example.nl', 'tc@example.nl'])
+        assert.deepEqual((await overview()).emails, ['secretaris@example.nl', 'tc@example.nl'])
+
+        const visitor = new Client(base, '10.0.4.2')
+        assert.equal((await visitor.req('POST', '/api/afmeldingen', { json: { namen: 'Truus', bericht: 'Ik kan woensdag niet.' } })).status, 201)
+        for (let i = 0; i < 100 && sent.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
+        assert.equal(sent.length, 1)
+        assert.deepEqual(sent[0].to, ['secretaris@example.nl', 'tc@example.nl'])
+        assert.equal(sent[0].subject, 'Afmelding: Truus')
+        assert.match(sent[0].text, /Ik kan woensdag niet\./)
+
+        // An empty list turns the notifications off (and does not fall back to the initial list).
+        assert.equal((await admin.req('PUT', '/api/admin/afmelden-emails', { json: { emails: [] } })).status, 200)
+        assert.deepEqual((await overview()).emails, [])
+        assert.equal((await visitor.req('POST', '/api/afmeldingen', { json: { namen: 'Truus', bericht: 'Nog een bericht.' } })).status, 201)
+        await new Promise((r) => setTimeout(r, 200))
+        assert.equal(sent.length, 1)
+      } finally {
+        globalThis.fetch = realFetch
+        delete config.resend
+      }
     })
   })
 

@@ -32,6 +32,7 @@ export interface Config {
   adminSessionMaxMs: number
   memberSessionMs: number
   memberSessionMaxMs: number
+  /** E-mail for absence messages. `to` is the initial list; a list saved in the dashboard takes precedence. */
   resend?: { apiKey: string; from: string; to: string[] }
 }
 
@@ -93,11 +94,11 @@ export function loadConfig(): Config {
     memberSessionMs: num('MEMBER_SESSION_MINUTES', 30) * minutes,
     memberSessionMaxMs: num('MEMBER_SESSION_MAX_HOURS', 8) * 60 * minutes,
     resend:
-      resendKey && process.env.AFMELDEN_EMAIL_TO
+      resendKey
         ? {
             apiKey: resendKey,
             from: process.env.AFMELDEN_EMAIL_FROM || 'BC Kellendonck <onboarding@resend.dev>',
-            to: process.env.AFMELDEN_EMAIL_TO.split(',').map((s) => s.trim()).filter(Boolean),
+            to: (process.env.AFMELDEN_EMAIL_TO || '').split(',').map((s) => s.trim()).filter(Boolean),
           }
         : undefined,
   }

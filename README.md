@@ -18,7 +18,7 @@ Beide draaien in productie als **één service op Railway**.
 | --- | --- |
 | Pdf's (uitslagen, reglement, statuten) | Geüpload via `/beheer`, opgeslagen in de opslag van de API, publiek via `/api/documents/<naam>` |
 | Ledenlijst | Alleen via `GET /api/members` met een geldige sessie na het invullen van de toegangscode |
-| Afmeldingen | Opgeslagen door de API en zichtbaar in `/beheer/afmeldingen` (optioneel ook per e-mail) |
+| Afmeldingen | Opgeslagen door de API en zichtbaar in `/beheer/afmeldingen`; optioneel ook per e-mail naar de adressen die daar zijn ingevuld |
 | Speelschema | Afbeelding in `public/assets/images/` (nog niet via het beheer aan te passen) |
 
 De website en de API draaien in productie onder **hetzelfde domein**: Railway bouwt de website
@@ -42,7 +42,7 @@ documents/<document>/<uuid>.pdf     pdf's (unieke namen, nooit de bestandsnaam v
 meta/documents.json                 welke versie per document gepubliceerd is (+ 5 vorige versies)
 private/members/current.json        ledenlijst
 private/members/history/*.json     vorige versies (voor "terugzetten", max. 10)
-private/settings.json               hash van de toegangscode voor leden
+private/settings.json               hash van de toegangscode voor leden, e-mailadressen voor afmeldingen
 private/afmeldingen/*.json          afmeldberichten
 ```
 
@@ -73,7 +73,7 @@ Open daarna http://localhost:5173/beheer en log in met het gekozen wachtwoord.
 ```bash
 npm run build              # typecheck + productiebuild van de website
 npm run typecheck:server   # typecheck van de API
-npm run test:server        # 24 API-tests (inloggen, uploads, toegangscode, sessies, …)
+npm run test:server        # 25 API-tests (inloggen, uploads, toegangscode, sessies, …)
 ```
 
 De API-tests kunnen ook tegen een echte S3-opslag draaien, bijvoorbeeld MinIO in Docker:
@@ -152,9 +152,10 @@ sterk aan te raden.
 
 - **Speelschema** is nog een vaste afbeelding; vervangen vereist nu een codewijziging. Kan later
   eenvoudig aan het beheer worden toegevoegd.
-- **E-mail bij afmeldingen** werkt alleen met een (gratis) Resend-account (`RESEND_API_KEY`,
-  `AFMELDEN_EMAIL_TO`, en een geverifieerd afzenderdomein voor `AFMELDEN_EMAIL_FROM`). Zonder die
-  instelling staan afmeldingen alleen in het beheer.
+- **E-mail bij afmeldingen** werkt alleen met een (gratis) Resend-account: zet `RESEND_API_KEY` en
+  `AFMELDEN_EMAIL_FROM` (een afzender op een bij Resend geverifieerd domein) in Railway. De ontvangers
+  stelt de beheerder in via **Beheer → Afmeldingen → Melding per e-mail**. Zonder die instelling staan
+  afmeldingen alleen in het beheer. Een mislukte e-mail komt alleen in de logs; het bericht blijft bewaard.
 - Op de oude site verwees "Uitslag slemcompetitie" naar hetzelfde bestand als "Uitslag laatste zitting";
   dat bestand is zo overgenomen en kan via het beheer worden vervangen.
 - Het logo vermeldt "Sinds 1978", terwijl de clubgeschiedenis 16 september 1998 noemt.

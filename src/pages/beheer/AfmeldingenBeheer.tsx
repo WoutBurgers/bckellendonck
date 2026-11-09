@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Trash2 } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { CircleCheck, Mail, Trash2 } from 'lucide-react'
+import { Field, describedBy, inputClasses } from '../../components/forms'
 import { Button, Container, Notice, Spinner } from '../../components/ui'
 import { ApiError } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
@@ -39,6 +40,7 @@ export default function AfmeldingenBeheer() {
     <Container narrow className="py-8 sm:py-12">
       <BackLink />
       <PageTitle title="Afmeldingen" intro="Berichten die leden via de pagina Afmelden hebben gestuurd. De nieuwste staan bovenaan." />
+      <EmailSettings />
       {error && (
         <Notice tone="error" role="alert" className="mb-6">
           {error}
@@ -66,5 +68,75 @@ export default function AfmeldingenBeheer() {
         </ul>
       )}
     </Container>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+function EmailSettings() {
+  const { call, overview, refresh } = useBeheer()
+  const [text, setText] = useState(overview.afmeldingen.emails.join('\n'))
+  const [error, setError] = useState('')
+  const [done, setDone] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setDone(null)
+    setBusy(true)
+    setError('')
+    try {
+      const { emails } = await call<{ emails: string[] }>('/api/admin/afmelden-emails', {
+        method: 'PUT',
+        json: { emails: text.split(/[\s,;]+/).filter(Boolean) },
+      })
+      setText(emails.join('\n'))
+      setDone(emails.length)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Opslaan is niet gelukt.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mb-8 rounded-xl border border-cream-300 bg-white p-6 shadow-soft sm:p-8">
+      <h2 className="flex items-center gap-3 text-2xl font-semibold">
+        <Mail aria-hidden="true" className="size-6 text-navy-700" />
+        Melding per e-mail
+      </h2>
+      <p className="mt-2 text-lg">Elke nieuwe afmelding wordt ook gemaild naar de adressen hieronder. Laat het veld leeg als u geen e-mail wilt ontvangen.</p>
+      {!overview.afmeldingen.emailConfigured && (
+        <Notice tone="warning" className="mt-5">
+          Het versturen van e-mail is nog niet ingesteld op de server. U kunt de adressen alvast opslaan, maar er worden pas e-mails verstuurd als dit is geregeld.
+        </Notice>
+      )}
+      {done !== null && (
+        <Notice tone="success" role="status" className="mt-5" icon={<CircleCheck aria-hidden="true" className="size-5" />}>
+          {done === 0
+            ? 'Opgeslagen. Er worden geen e-mails meer verstuurd.'
+            : `Opgeslagen. Nieuwe afmeldingen worden gemaild naar ${done === 1 ? '1 adres' : `${done} adressen`}.`}
+        </Notice>
+      )}
+      <form onSubmit={submit} noValidate className="mt-6 space-y-5">
+        <Field id="afmelden-emails" label="E-mailadressen" hint="Zet elk adres op een eigen regel." error={error}>
+          <textarea
+            id="afmelden-emails"
+            rows={3}
+            autoComplete="off"
+            spellCheck={false}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            aria-invalid={Boolean(error)}
+            aria-describedby={describedBy('afmelden-emails', { hint: true, error: Boolean(error) })}
+            className={inputClasses(Boolean(error), 'resize-y')}
+          />
+        </Field>
+        <Button type="submit" size="lg" loading={busy}>
+          {busy ? 'Bezig met opslaan…' : 'Adressen opslaan'}
+        </Button>
+      </form>
+    </section>
   )
 }

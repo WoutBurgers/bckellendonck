@@ -57,6 +57,10 @@ De huidige code kan niet worden getoond; noteer hem dus goed.
 Onder **Afmeldingen bekijken** staan de berichten die leden via de pagina *Afmelden* hebben gestuurd.
 De nieuwste staan bovenaan. Een behandeld bericht kunt u verwijderen.
 
+Wilt u elke nieuwe afmelding ook per e-mail ontvangen? Vul bovenaan die pagina, bij *Melding per e-mail*,
+een of meer e-mailadressen in (elk adres op een eigen regel) en kies **Adressen opslaan**. Laat u het veld
+leeg, dan worden er geen e-mails verstuurd. De berichten blijven altijd in het beheer staan.
+
 ## Wachtwoord vergeten?
 
 Neem contact op met degene die de website heeft gemaakt. Die kan een nieuw wachtwoord instellen.
