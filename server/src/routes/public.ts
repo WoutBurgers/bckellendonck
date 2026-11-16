@@ -1,3 +1,4 @@
+import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
 import { DOCUMENTS, findDocument } from '../lib/documents.ts'
 import { cleanCell } from '../lib/memberFile.ts'
@@ -56,19 +57,41 @@ export function publicRoutes(ctx: Context) {
     const doc = findDocument(req.params.slug)
     if (!doc) return res.status(404).json({ error: 'Document niet gevonden.' })
     const current = await ctx.docs.current(doc.slug)
-    const file = current ? await ctx.docs.read(current) : null
-    if (!current || !file) return res.status(404).json({ error: 'Dit document is nog niet beschikbaar.' })
+    if (!current) return res.status(404).json({ error: 'Dit document is nog niet beschikbaar.' })
 
     const disposition = req.query.download === '1' ? 'attachment' : 'inline'
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Length': String(file.length),
       'Content-Disposition': `${disposition}; filename="${doc.slug}.pdf"`,
       // Versioned URLs never change content; the bare URL always revalidates.
       'Cache-Control': req.query.v === current.id ? 'public, max-age=31536000, immutable' : 'no-cache',
       ETag: `"${current.id}"`,
     })
-    res.send(file)
+    // The browser already has this version: no need to open the file at all.
+    if (req.fresh) return res.status(304).end()
+
+    const file = await ctx.docs.read(current)
+    if (!file) {
+      res.removeHeader('Cache-Control')
+      return res.status(404).json({ error: 'Dit document is nog niet beschikbaar.' })
+    }
+    res.set('Content-Length', String(file.size))
+    if (req.method === 'HEAD') {
+      file.body.destroy()
+      return res.end()
+    }
+
+    // Stream in small chunks instead of loading the whole PDF into memory.
+    try {
+      await pipeline(file.body, res)
+    } catch (err) {
+      // A visitor closing the tab mid-download is normal; anything else is worth a log line.
+      if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.error('Fout bij versturen document:', (err as Error).message)
+      }
+      if (!res.headersSent) res.status(500).json({ error: 'Het document kon niet worden geladen.' })
+      else res.destroy()
+    }
   })
 
   router.post('/afmeldingen', async (req, res) => {

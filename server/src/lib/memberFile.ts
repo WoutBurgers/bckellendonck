@@ -1,5 +1,3 @@
-import { readSheet } from 'read-excel-file/node'
-
 export type ColumnType = 'name' | 'phone' | 'email' | 'text'
 
 export interface MemberColumn {
@@ -21,9 +19,13 @@ export interface ParsedColumn {
 }
 
 export interface ParsedFile {
+  /** 'header': first row holds column names. 'numbered': the club's numbered list without column names. */
+  format: 'header' | 'numbered'
   columns: ParsedColumn[]
   /** `line` is the line number in the original file, for clear messages. */
   rows: { line: number; cells: string[] }[]
+  /** Rows that contain data but were not imported, with a Dutch reason. */
+  skipped: { line: number; reason: string }[]
 }
 
 export class MemberFileError extends Error {}
@@ -122,6 +124,8 @@ export async function parseMemberFile(buf: Buffer, fileName: string): Promise<Pa
   let raw: unknown[][]
   if (looksLikeXlsx(buf)) {
     try {
+      // Loaded on first use: only needed when the administrator uploads a members list.
+      const { readSheet } = await import('read-excel-file/node')
       // parseNumber keeps numbers as text so phone numbers keep their leading zero where possible.
       raw = (await readSheet(buf, { parseNumber: (s: string) => s })) as unknown[][]
     } catch {
@@ -142,6 +146,15 @@ export async function parseMemberFile(buf: Buffer, fileName: string): Promise<Pa
   const header = table[headerIndex]
   const width = header.length
   if (width > MAX_COLUMNS) throw new MemberFileError(`Het bestand heeft te veel kolommen (maximaal ${MAX_COLUMNS}).`)
+
+  const headerHasName = header.some((label) => {
+    const field = classify(label)?.field
+    return field === 'naam' || field === 'achternaam' || field === 'voornaam'
+  })
+  if (!headerHasName) {
+    const numbered = parseNumberedList(table)
+    if (numbered) return numbered
+  }
 
   const columns: ParsedColumn[] = []
   const seen = new Set<string>()
@@ -164,7 +177,7 @@ export async function parseMemberFile(buf: Buffer, fileName: string): Promise<Pa
   const hasParts = ['voornaam', 'achternaam'].every((f) => columns.some((c) => classify(c.label)?.field === f))
   if (!hasName && !hasParts) {
     throw new MemberFileError(
-      'De kolom "Naam" ontbreekt. Zorg dat de eerste regel van het bestand de kolomnamen bevat, met in elk geval een kolom "Naam" (of "Voornaam" en "Achternaam").',
+      'De leden konden niet worden herkend. Gebruik de ledenlijst van de club (genummerd, met achternaam, voornaam, adres, postcode, woonplaats, telefoon en e-mail), of zet in de eerste regel kolomnamen met in elk geval "Naam" (of "Voornaam" en "Achternaam").',
     )
   }
 
@@ -175,7 +188,82 @@ export async function parseMemberFile(buf: Buffer, fileName: string): Promise<Pa
   })
   if (rows.length === 0) throw new MemberFileError('Het bestand bevat wel kolomnamen, maar geen leden.')
   if (rows.length > MAX_ROWS) throw new MemberFileError(`Het bestand bevat meer dan ${MAX_ROWS} leden.`)
-  return { columns, rows }
+  return { format: 'header', columns, rows, skipped: [] }
+}
+
+const isNumber = (v: string) => /^\d{1,4}$/.test(v)
+const isEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v)
+const isPostcode = (v: string) => /^\d{4}\s?[a-z]{2}$/i.test(v)
+const isPhone = (v: string) => /^[+\d][\d\s\-()]{8,16}$/.test(v) && v.replace(/\D/g, '').length >= 9
+const isMobile = (v: string) => /^(06|\+316|00316)/.test(v.replace(/[\s\-()]/g, ''))
+
+/**
+ * The club's own members list: no column names, a member number in the first column, then
+ * surname, first name (with prefix, e.g. "Jan van"), address, postcode, town, phone, mobile, e-mail.
+ * Columns are recognised by their content, so the list keeps working if a column moves.
+ * Returns null when the table does not look like such a list.
+ */
+function parseNumberedList(table: string[][]): ParsedFile | null {
+  const width = Math.max(...table.map((r) => r.length))
+  const valuesOf = (c: number) => table.map((r) => r[c] ?? '').filter(Boolean)
+  const share = (c: number, test: (v: string) => boolean) => {
+    const vals = valuesOf(c)
+    return vals.length ? vals.filter(test).length / vals.length : 0
+  }
+
+  const cols = Array.from({ length: width }, (_, c) => c).filter((c) => valuesOf(c).length > 0)
+  const nrCol = cols.find((c) => share(c, isNumber) >= 0.8)
+  const emailCol = cols.find((c) => share(c, isEmail) >= 0.6)
+  const postcodeCol = cols.find((c) => share(c, isPostcode) >= 0.6)
+  const phoneCols = cols.filter((c) => c !== nrCol && share(c, isPhone) >= 0.6)
+  const textCols = cols.filter((c) => c !== nrCol && c !== emailCol && c !== postcodeCol && !phoneCols.includes(c))
+
+  const [lastCol, firstCol] = textCols
+  // A members list has names plus at least some contact details.
+  if (firstCol === undefined || (emailCol === undefined && postcodeCol === undefined && phoneCols.length === 0)) return null
+
+  const labels = new Map<number, string>([
+    [lastCol, 'Achternaam'],
+    [firstCol, 'Voornaam'],
+  ])
+  if (postcodeCol !== undefined) {
+    labels.set(postcodeCol, 'Postcode')
+    if (textCols.includes(postcodeCol - 1) && !labels.has(postcodeCol - 1)) labels.set(postcodeCol - 1, 'Adres')
+    if (textCols.includes(postcodeCol + 1) && !labels.has(postcodeCol + 1)) labels.set(postcodeCol + 1, 'Woonplaats')
+  }
+  for (const c of phoneCols) {
+    const label = share(c, isMobile) >= 0.6 ? 'Mobiel' : 'Telefoon'
+    labels.set(c, [...labels.values()].includes(label) ? `${label} (2)` : label)
+  }
+  if (emailCol !== undefined) labels.set(emailCol, 'E-mail')
+
+  const columns: ParsedColumn[] = cols
+    .filter((c) => c !== nrCol)
+    .map((index) => {
+      const label = labels.get(index) ?? `Kolom ${String.fromCharCode(65 + (index % 26))}`
+      const known = classify(label.replace(/ \(\d+\)$/, ''))
+      return { index, label, type: known?.type ?? 'text', recognised: Boolean(known), sensitive: false }
+    })
+
+  const rows: ParsedFile['rows'] = []
+  const skipped: ParsedFile['skipped'] = []
+  table.forEach((r, i) => {
+    const hasName = Boolean(r[lastCol] || r[firstCol])
+    const hasOther = columns.some((c) => r[c.index])
+    if (!hasOther) return // empty row, or a numbered row that is still empty
+    if (nrCol !== undefined && !isNumber(r[nrCol] ?? '')) {
+      skipped.push({ line: i + 1, reason: 'geen lidnummer (bijvoorbeeld het adres van de speellocatie)' })
+      return
+    }
+    if (!hasName) {
+      skipped.push({ line: i + 1, reason: 'geen naam' })
+      return
+    }
+    rows.push({ line: i + 1, cells: Array.from({ length: width }, (_, c) => r[c] ?? '') })
+  })
+  if (rows.length === 0) return null
+  if (rows.length > MAX_ROWS) throw new MemberFileError(`Het bestand bevat meer dan ${MAX_ROWS} leden.`)
+  return { format: 'numbered', columns, rows, skipped }
 }
 
 function keyFor(label: string, used: Set<string>) {
@@ -191,15 +279,41 @@ function fixPhone(value: string) {
   return /^[1-9]\d{8}$/.test(value) ? `0${value}` : value
 }
 
+/** "4012bc" or "4012BC" -> "4012 BC". */
+function fixPostcode(value: string) {
+  const m = /^(\d{4})\s?([a-z]{2})$/i.exec(value)
+  return m ? `${m[1]} ${m[2].toUpperCase()}` : value
+}
+
+/** Phone-book order, so the list sorts by surname: "Berg, Jan van". */
+function composeName(last: string, first: string, middle: string) {
+  // A prefix typed after the surname ("Bergen van") belongs with the first name: "Bergen, Jan van".
+  const trailing = /\s+((?:van|de|der|den|het|'t|ter|ten|in)(?:\s+(?:van|de|der|den|het|'t|ter|ten|in))*)$/i.exec(last)
+  if (trailing && !middle) {
+    last = last.slice(0, trailing.index)
+    middle = trailing[1].toLowerCase()
+  }
+  const given = [first, middle].filter(Boolean).join(' ')
+  return last && given ? `${last}, ${given}` : last || given
+}
+
+function nameColumns(parsed: ParsedFile) {
+  const part = (f: string) => parsed.columns.find((c) => classify(c.label)?.field === f)
+  return { nameCol: parsed.columns.find((c) => c.type === 'name'), first: part('voornaam'), middle: part('tussenvoegsel'), last: part('achternaam') }
+}
+
+/** The name as members will see it: the Naam column, or composed from surname and first name. */
+export function memberName(parsed: ParsedFile, cells: string[]) {
+  const { nameCol, first, middle, last } = nameColumns(parsed)
+  const cell = (c: ParsedColumn | undefined) => (c ? cells[c.index] : '')
+  return nameCol ? cells[nameCol.index] : composeName(cell(last), cell(first), cell(middle))
+}
+
 /** Builds the publishable list from a parsed file and the columns the administrator selected. */
 export function buildMemberList(parsed: ParsedFile, selected: number[]) {
   const chosen = parsed.columns.filter((c) => selected.includes(c.index))
   const used = new Set<string>(['naam'])
-  const nameCol = chosen.find((c) => c.type === 'name')
-  const part = (f: string) => parsed.columns.find((c) => classify(c.label)?.field === f)
-  const first = part('voornaam')
-  const middle = part('tussenvoegsel')
-  const last = part('achternaam')
+  const { nameCol, first, middle, last } = nameColumns(parsed)
 
   const columns: MemberColumn[] = [{ key: 'naam', label: 'Naam', type: 'name' }]
   const mapping: { col: ParsedColumn; key: string }[] = []
@@ -215,16 +329,15 @@ export function buildMemberList(parsed: ParsedFile, selected: number[]) {
   const rows: MemberRow[] = []
   const skippedRows: number[] = []
   parsed.rows.forEach(({ line, cells }) => {
-    const naam = nameCol
-      ? cells[nameCol.index]
-      : [first, middle, last].map((c) => (c ? cells[c.index] : '')).filter(Boolean).join(' ')
+    const naam = memberName(parsed, cells)
     if (!naam) {
       skippedRows.push(line)
       return
     }
     const row: MemberRow = { naam }
     for (const { col, key } of mapping) {
-      const v = col.type === 'phone' ? fixPhone(cells[col.index]) : cells[col.index]
+      const raw = cells[col.index]
+      const v = col.type === 'phone' ? fixPhone(raw) : classify(col.label)?.field === 'postcode' ? fixPostcode(raw) : raw
       if (v) row[key] = v
     }
     rows.push(row)

@@ -5,6 +5,7 @@ import { DOCUMENTS, UploadError, findDocument, validatePdf } from '../lib/docume
 import {
   MemberFileError,
   buildMemberList,
+  memberName,
   parseMemberFile,
   validateMemberList,
   type ParsedFile,
@@ -196,6 +197,9 @@ export function adminRoutes(ctx: Context) {
             .slice(0, 3),
         })),
         rows: parsed.rows.slice(0, 8).map((r) => r.cells),
+        names: parsed.rows.slice(0, 8).map((r) => memberName(parsed, r.cells)),
+        format: parsed.format,
+        skipped: parsed.skipped,
       })
     } catch (err) {
       if (err instanceof MemberFileError) return res.status(400).json({ error: err.message })

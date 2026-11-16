@@ -99,7 +99,7 @@ describe('BC Kellendonck API', () => {
       memberSessionMs: 1500,
       memberSessionMaxMs: 60_000,
     }
-    storage = createStorage(config.storage)
+    storage = await createStorage(config.storage)
     ;({ server, base } = await startServer(config, storage))
   })
 
@@ -292,7 +292,56 @@ describe('BC Kellendonck API', () => {
       })
       assert.equal(pub.status, 200)
       const list = (await (await admin.req('GET', '/api/admin/members')).json()) as { rows: Record<string, string>[] }
-      assert.deepEqual(list.rows, [{ naam: 'Henny Voorbeeld', mobiel: '0612345678' }])
+      assert.deepEqual(list.rows, [{ naam: 'Voorbeeld, Henny', mobiel: '0612345678' }])
+    })
+
+    it("reads the club's numbered list without column names", async () => {
+      // Same layout as the club's own spreadsheet; all data made up.
+      const t = (v: string) => ({ value: v, type: String })
+      const xlsx = await writeXlsxFile([
+        [null, t('Dorpshuis'), t('De Avezathen'), t('Daver 46'), t('4012BC'), t('Kerk-Avezaath'), t('0344681469'), null, null],
+        [t('1'), t('Akker'), t('Anna van den'), t('Kerkstraat 1'), t('4012AB'), t('Kerk-Avezaath'), t('0344111111'), null, t('anna@voorbeeld.nl')],
+        [t('2'), t('Bos'), t('Bram'), t('Laan 2'), t('4001 CD'), t('Tiel'), null, t('0612345678'), t('bram@voorbeeld.nl')],
+        [t('3'), t('Dijk van'), t('Cor'), t('Dijk 3'), t('4002EF'), t('Tiel'), t('0344222222'), t('0687654321'), t('cor@voorbeeld.nl')],
+        [t('4'), null, null, null, null, null, null, null, null],
+        [t('5'), null, null, null, null, null, null, null, null],
+      ]).toBuffer()
+
+      const preview = await admin.upload('/api/admin/members/preview', xlsx, 'Ledenlijst okt2026.xlsx')
+      assert.equal(preview.status, 200)
+      const p = (await preview.json()) as {
+        draftId: string
+        format: string
+        rowCount: number
+        names: string[]
+        skipped: { line: number }[]
+        columns: { index: number; label: string; recommended: boolean }[]
+      }
+      assert.equal(p.format, 'numbered')
+      assert.equal(p.rowCount, 3)
+      assert.deepEqual(p.skipped.map((s) => s.line), [1])
+      assert.deepEqual(p.columns.map((c) => c.label), ['Achternaam', 'Voornaam', 'Adres', 'Postcode', 'Woonplaats', 'Telefoon', 'Mobiel', 'E-mail'])
+      assert.deepEqual(p.names, ['Akker, Anna van den', 'Bos, Bram', 'Dijk, Cor van'])
+
+      const pub = await admin.req('POST', '/api/admin/members/publish', {
+        json: { draftId: p.draftId, columns: p.columns.filter((c) => c.recommended).map((c) => c.index) },
+      })
+      assert.equal(pub.status, 200)
+      const list = (await (await admin.req('GET', '/api/admin/members')).json()) as { columns: { key: string }[]; rows: Record<string, string>[] }
+      assert.deepEqual(list.columns.map((c) => c.key), ['naam', 'adres', 'postcode', 'woonplaats', 'telefoon', 'mobiel', 'email'])
+      assert.deepEqual(list.rows[0], {
+        naam: 'Akker, Anna van den',
+        adres: 'Kerkstraat 1',
+        postcode: '4012 AB',
+        woonplaats: 'Kerk-Avezaath',
+        telefoon: '0344111111',
+        email: 'anna@voorbeeld.nl',
+      })
+      assert.equal(list.rows[1].postcode, '4001 CD')
+      assert.ok(!JSON.stringify(list).includes('Dorpshuis'), 'venue row is not imported')
+
+      // Put the previous list back so the following tests keep their expected state.
+      assert.equal((await admin.req('POST', '/api/admin/members/undo')).status, 200)
     })
 
     it('can undo an accidental replacement', async () => {
@@ -418,7 +467,7 @@ describe('BC Kellendonck API', () => {
 
   it('keeps documents, members and the PIN after a restart', async () => {
     server.close()
-    const restarted = await startServer(config, createStorage(config.storage))
+    const restarted = await startServer(config, await createStorage(config.storage))
     server = restarted.server
     const docs = (await (await fetch(`${restarted.base}/api/documents`)).json()) as { documents: { available: boolean }[] }
     assert.ok(docs.documents.every((d) => d.available))

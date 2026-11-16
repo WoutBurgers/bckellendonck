@@ -144,7 +144,13 @@ interface Preview {
   rowCount: number
   columns: { index: number; label: string; type: Column['type']; recommended: boolean; sensitive: boolean; examples: string[] }[]
   rows: string[][]
+  /** Names of the preview rows as members will see them. */
+  names: string[]
+  format: 'header' | 'numbered'
+  skipped: { line: number; reason: string }[]
 }
+
+const NAME_PARTS = ['achternaam', 'voornaam', 'tussenvoegsel']
 
 function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: number[]) => Promise<void> }) {
   const { call, overview } = useBeheer()
@@ -198,7 +204,8 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
   }
 
   const nameIsComposed = preview && !preview.columns.some((c) => c.type === 'name')
-  const shown = preview?.columns.filter((c) => selected.has(c.index) || c.type === 'name') ?? []
+  const isNamePart = (c: Preview['columns'][number]) => c.type === 'name' || Boolean(nameIsComposed && NAME_PARTS.includes(c.label.toLowerCase()))
+  const shown = preview?.columns.filter((c) => selected.has(c.index) && !isNamePart(c)) ?? []
 
   return (
     <section className="rounded-xl border border-cream-300 bg-white p-6 shadow-soft sm:p-8">
@@ -217,33 +224,34 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
       {open && !preview && (
         <div className="mt-5 space-y-5">
           <div className="rounded-lg bg-cream-100 p-4">
-            <p className="font-semibold text-navy-900">Zo moet het bestand eruitzien</p>
+            <p className="font-semibold text-navy-900">Welk bestand?</p>
             <p className="mt-1">
-              Een Excel-bestand (.xlsx) of CSV-bestand. De <strong>eerste regel</strong> bevat de kolomnamen. Er moet in
-              elk geval een kolom <strong>Naam</strong> zijn (of <strong>Voornaam</strong> en <strong>Achternaam</strong>).
+              U kunt de <strong>ledenlijst van de club</strong> in Excel direct uploaden, zoals hij is: genummerd, met per
+              lid de achternaam, voornaam, adres, postcode, woonplaats, telefoon, mobiel en e-mail. Kolomnamen zijn niet
+              nodig; de website herkent de kolommen zelf.
             </p>
             <div className="mt-3 overflow-x-auto">
-              <table className="min-w-max border-collapse bg-white text-base">
-                <thead>
-                  <tr>
-                    {['Naam', 'Telefoon', 'E-mail', 'Adres'].map((h) => (
-                      <th key={h} className="border border-cream-300 px-3 py-1.5 text-left font-semibold">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
+              <table className="min-w-max border-collapse bg-white text-base" aria-label="Voorbeeld van de ledenlijst">
                 <tbody>
-                  <tr>
-                    {['Jan Jansen', '06 12345678', 'jan@voorbeeld.nl', 'Dorpsstraat 1'].map((v) => (
-                      <td key={v} className="border border-cream-300 px-3 py-1.5 text-muted">
-                        {v}
-                      </td>
-                    ))}
-                  </tr>
+                  {[
+                    ['1', 'Jansen', 'Jan', 'Dorpsstraat 1', '4012AB', 'Kerk-Avezaath', '0344123456', '0612345678', 'jan@voorbeeld.nl'],
+                    ['2', 'Berg', 'Truus van den', 'Kerkstraat 5', '4001CD', 'Tiel', '', '0687654321', 'truus@voorbeeld.nl'],
+                  ].map((row) => (
+                    <tr key={row[0]}>
+                      {row.map((v, i) => (
+                        <td key={i} className="border border-cream-300 px-3 py-1.5 text-muted">
+                          {v}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+            <p className="mt-3 text-muted">
+              Een ander bestand? Zet dan in de eerste regel kolomnamen, met in elk geval <strong>Naam</strong> (of{' '}
+              <strong>Voornaam</strong> en <strong>Achternaam</strong>).
+            </p>
           </div>
           {busy ? (
             <Spinner label="Het bestand wordt gelezen…" />
@@ -269,12 +277,30 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
             Gevonden: <strong>{preview.rowCount} leden</strong>
           </p>
 
+          {preview.format === 'numbered' && (
+            <Notice tone="info">
+              Dit bestand heeft geen kolomnamen. De kolommen zijn herkend aan de inhoud. Controleer in het voorbeeld
+              hieronder of alles in de juiste kolom staat.
+            </Notice>
+          )}
+          {preview.skipped.length > 0 && (
+            <Notice tone="warning" title="Niet overgenomen">
+              <ul className="list-disc pl-5">
+                {preview.skipped.map((s) => (
+                  <li key={s.line}>
+                    Regel {s.line}: {s.reason}
+                  </li>
+                ))}
+              </ul>
+            </Notice>
+          )}
+
           <fieldset>
             <legend className="text-lg font-semibold text-navy-900">Welke gegevens mogen leden zien?</legend>
             <p className="mt-1 text-muted">Zet alleen een vinkje bij gegevens die echt nodig zijn. Niet-aangevinkte kolommen worden niet opgeslagen.</p>
             <ul className="mt-4 space-y-2">
               {preview.columns.map((c) => {
-                const locked = c.type === 'name'
+                const locked = isNamePart(c)
                 const isChecked = locked || selected.has(c.index)
                 return (
                   <li key={c.index}>
@@ -296,7 +322,7 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
                       <span className="min-w-0">
                         <span className="block text-lg font-semibold text-navy-900">
                           {c.label}
-                          {locked && <span className="font-normal text-muted"> (altijd zichtbaar)</span>}
+                          {locked && <span className="font-normal text-muted"> ({nameIsComposed ? 'onderdeel van de naam, ' : ''}altijd zichtbaar)</span>}
                         </span>
                         {c.examples.length > 0 && <span className="block break-words text-muted">Bijvoorbeeld: {c.examples.join(', ')}</span>}
                         {c.sensitive && (
@@ -311,7 +337,7 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
                 )
               })}
             </ul>
-            {nameIsComposed && <p className="mt-3 text-muted">De naam wordt samengesteld uit de voornaam en achternaam.</p>}
+            {nameIsComposed && <p className="mt-3 text-muted">De naam wordt getoond als “Achternaam, Voornaam”, zodat de lijst op achternaam staat.</p>}
           </fieldset>
 
           <div>
@@ -320,6 +346,9 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
               <table className="min-w-full border-collapse text-base">
                 <thead className="bg-cream-100">
                   <tr>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold whitespace-nowrap">
+                      Naam
+                    </th>
                     {shown.map((c) => (
                       <th key={c.index} scope="col" className="px-3 py-2 text-left font-semibold whitespace-nowrap">
                         {c.label}
@@ -330,6 +359,7 @@ function MemberUpload({ onPublished }: { onPublished: (count: number, skipped: n
                 <tbody>
                   {preview.rows.map((r, i) => (
                     <tr key={i} className="border-t border-cream-200">
+                      <td className="px-3 py-2 font-semibold whitespace-nowrap text-navy-900">{preview.names[i]}</td>
                       {shown.map((c) => (
                         <td key={c.index} className="px-3 py-2 whitespace-nowrap">
                           {r[c.index]}

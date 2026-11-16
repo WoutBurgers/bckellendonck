@@ -88,7 +88,7 @@ export class DocumentStore {
   }
 
   async read(version: DocumentVersion) {
-    return this.storage.get(version.key)
+    return this.storage.stream(version.key)
   }
 
   /**

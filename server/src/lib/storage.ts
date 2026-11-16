@@ -1,16 +1,8 @@
+import { createReadStream } from 'node:fs'
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-  NoSuchKey,
-  NotFound,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3'
+import type { Readable } from 'node:stream'
 import type { Config } from '../config.ts'
 
 /**
@@ -20,6 +12,8 @@ import type { Config } from '../config.ts'
 export interface Storage {
   put(key: string, body: Buffer, contentType: string): Promise<void>
   get(key: string): Promise<Buffer | null>
+  /** Opens an object for streaming, so large files are never held in memory as a whole. */
+  stream(key: string): Promise<{ body: Readable; size: number } | null>
   size(key: string): Promise<number | null>
   delete(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
@@ -66,6 +60,17 @@ class LocalStorage implements Storage {
     }
   }
 
+  async stream(key: string) {
+    const path = this.path(key)
+    try {
+      const { size } = await stat(path)
+      return { body: createReadStream(path), size }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw err
+    }
+  }
+
   async size(key: string) {
     try {
       return (await stat(this.path(key))).size
@@ -99,72 +104,11 @@ class LocalStorage implements Storage {
   }
 }
 
-class S3Storage implements Storage {
-  private client: S3Client
-  private bucket: string
-
-  constructor(cfg: Extract<Config['storage'], { driver: 's3' }>) {
-    this.bucket = cfg.bucket
-    this.client = new S3Client({
-      region: cfg.region,
-      endpoint: cfg.endpoint,
-      forcePathStyle: cfg.forcePathStyle,
-      credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
-    })
-  }
-
-  async put(key: string, body: Buffer, contentType: string) {
-    assertKey(key)
-    await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }))
-  }
-
-  async get(key: string) {
-    assertKey(key)
-    try {
-      const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))
-      return res.Body ? Buffer.from(await res.Body.transformToByteArray()) : null
-    } catch (err) {
-      if (err instanceof NoSuchKey || err instanceof NotFound) return null
-      throw err
-    }
-  }
-
-  async size(key: string) {
-    assertKey(key)
-    try {
-      const res = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }))
-      return res.ContentLength ?? 0
-    } catch (err) {
-      if (err instanceof NotFound || (err as { name?: string }).name === 'NotFound') return null
-      throw err
-    }
-  }
-
-  async delete(key: string) {
-    assertKey(key)
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
-  }
-
-  async list(prefix: string) {
-    const keys: string[] = []
-    let token: string | undefined
-    do {
-      const res = await this.client.send(
-        new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token }),
-      )
-      for (const obj of res.Contents ?? []) if (obj.Key) keys.push(obj.Key)
-      token = res.IsTruncated ? res.NextContinuationToken : undefined
-    } while (token)
-    return keys.sort()
-  }
-
-  describe() {
-    return `S3-bucket ${this.bucket}`
-  }
-}
-
-export function createStorage(cfg: Config['storage']): Storage {
-  return cfg.driver === 's3' ? new S3Storage(cfg) : new LocalStorage(cfg.dataDir)
+export async function createStorage(cfg: Config['storage']): Promise<Storage> {
+  if (cfg.driver === 'local') return new LocalStorage(cfg.dataDir)
+  // The AWS SDK costs ~15 MB of memory, so it is only loaded when S3 storage is actually used.
+  const { S3Storage } = await import('./s3Storage.ts')
+  return new S3Storage(cfg)
 }
 
 export async function readJson<T>(storage: Storage, key: string): Promise<T | null> {

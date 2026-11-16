@@ -4,7 +4,7 @@ import { createStorage } from './lib/storage.ts'
 import { isValidHash } from './lib/secrets.ts'
 
 const config = loadConfig()
-const storage = createStorage(config.storage)
+const storage = await createStorage(config.storage)
 const { app, ctx } = createApp(config, storage)
 
 if (config.adminPasswordHash && !isValidHash(config.adminPasswordHash)) {

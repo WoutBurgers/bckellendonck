@@ -9,3 +9,8 @@ dist
 
 # Local document/member storage of the API (development)
 server/data
+
+# Member lists contain personal data: never commit them (upload them via /beheer instead)
+*.xlsx
+*.xls
+*.csv
